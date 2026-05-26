@@ -1,0 +1,6 @@
+[submodule "components/esp_avb"]
+	path = components/esp_avb
+	url = git@github.com:ctag-fh-kiel/esp_avb.git
+[submodule "components/esp_ptp"]
+	path = components/esp_ptp
+	url = git@github.com:ctag-fh-kiel/esp_ptp.git

@@ -4,8 +4,11 @@ dependencies:
     version: "~1.3.0"
     rules:
       - if: "target in [esp32p4]"
-  scrambletools/esp_ptp: "*"
+  scrambletools/esp_ptp:
+    version: "*"
+    override_path: "../components/esp_ptp"
   scrambletools/esp_avb:
     version: "*"
+    override_path: "../components/esp_avb"
     rules:
       - if: "target in [esp32p4]"
