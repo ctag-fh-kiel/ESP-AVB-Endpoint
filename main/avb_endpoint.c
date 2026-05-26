@@ -123,6 +123,30 @@ static void start_ethernet_endpoint(void) {
   }
 
   avb_config_s avb_config = AVB_DEFAULT_CONFIG();
+  avb_config.codec_type = avb_codec_type_ak4619;
+  avb_config.i2s_port = 0;
+  avb_config.codec_pins = (avb_codec_pins_s){
+      .mclk = 53,
+      .bclk = 47,
+      .ws = 48,
+      .dout = 46,
+      .din = 6,
+      .i2c_scl = 8,
+      .i2c_sda = 7,
+      .i2c_port = 1,
+      .reset = 22,
+      .pa = -1,
+      .pa_reverted = false,
+  };
+  avb_config.default_sample_rate = 48000;
+  avb_config.default_bits_per_sample = 32;
+  avb_config.input_channels_usable = 4;
+  avb_config.output_channels_usable = 4;
+  avb_config.channels_per_stream = 8;
+  avb_config.num_allowed_sample_rates = 1;
+  avb_config.allowed_sample_rates[0] = 48000;
+  avb_config.num_allowed_bits_per_sample = 1;
+  avb_config.allowed_bits_per_sample[0] = 32;
   avb_config.entity_name = CONFIG_EXAMPLE_AVB_ENTITY_NAME;
   avb_config.model_id = CONFIG_EXAMPLE_AVB_MODEL_ID;
   avb_config.talker = CONFIG_EXAMPLE_AVB_TALKER;
