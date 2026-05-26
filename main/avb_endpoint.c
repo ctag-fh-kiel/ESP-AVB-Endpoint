@@ -36,6 +36,7 @@
 #include <esp_eth.h>
 #include <esp_eth_phy_ip101.h>
 #include <esp_event.h>
+#include <esp_ldo_regulator.h>
 #include <esp_netif.h>
 #include <esp_vfs_l2tap.h>
 #include <ptpd.h>
@@ -61,7 +62,22 @@ static const char *TAG = "avb_endpoint";
 #ifdef CONFIG_ESP_PTP_PORT0_MEDIUM_ETHERNET
 
 static esp_eth_handle_t s_eth_handle;
+static esp_ldo_channel_handle_t s_audio_ldo4;
 static char s_avb_eth_interface[10];
+
+static void init_audio_cape_power(void) {
+  esp_ldo_channel_config_t ldo_config = {
+      .chan_id = 4,
+      .voltage_mv = 3300,
+      .flags =
+          {
+              .adjustable = false,
+          },
+  };
+
+  ESP_ERROR_CHECK(esp_ldo_acquire_channel(&ldo_config, &s_audio_ldo4));
+  ESP_LOGI(TAG, "Audio cape LDO4 enabled at 3.3 V");
+}
 
 static void init_ethernet_and_netif(void) {
   /* Default event loop may already exist (e.g. created by esp_ptp at
@@ -113,6 +129,7 @@ static void init_ethernet_and_netif(void) {
 static void start_ethernet_endpoint(void) {
   struct timespec cur_time;
 
+  init_audio_cape_power();
   init_ethernet_and_netif();
   ESP_LOGI(TAG, "Ethernet started");
 
