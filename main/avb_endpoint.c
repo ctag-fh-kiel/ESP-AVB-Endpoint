@@ -95,7 +95,10 @@ static void init_ethernet_and_netif(void) {
   emac_config.dma_burst_len = ETH_DMA_BURST_LEN_32;
   emac_config.intr_priority = 0;
   mac_config.rx_task_stack_size = 16384;
-  mac_config.rx_task_prio = 22;
+  /* Listener audio and gPTP share the EMAC RX descriptors. Drain the RX
+   * ring ahead of PTP processing and the 1 ms I2S timer so a short burst
+   * cannot discard PDelay frames and make the upstream port lose ASCapable. */
+  mac_config.rx_task_prio = configMAX_PRIORITIES - 1;
   phy_config.phy_addr = 1;
   phy_config.reset_gpio_num = 5;
 
