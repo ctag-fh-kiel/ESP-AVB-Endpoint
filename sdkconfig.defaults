@@ -34,8 +34,8 @@ CONFIG_CODEC_I2C_BACKWARD_COMPATIBLE=n
 
 CONFIG_FREERTOS_ISR_STACKSIZE=6144
 
-# Disable task WDT for CPU1 idle task — AVB-OUT runs at max priority on
-# core 1 and starves IDLE1 by design during real-time streaming.
+# Do not watchdog the CPU1 idle task: core 1 is reserved for the AVB-IN
+# playback and AVB-OUT capture/transmit real-time audio tasks.
 CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU1=n
 
 # Both AVTP audio and timestamped gPTP packets use the EMAC TX descriptor
@@ -45,8 +45,8 @@ CONFIG_ETH_TRANSMIT_MUTEX=y
 
 CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS=y
 
-# Include xCoreID in TaskStatus_t — required by avbstats.c per-task
-# CPU diagnostic so it can show which core each task ran on.
+# Kept for opt-in profiling builds; production startup does not create the
+# verbose AVB-STATS reporting task.
 CONFIG_FREERTOS_VTASKLIST_INCLUDE_COREID=y
 
 # Keep EMAC RX critical sections and forwarder in IRAM so they continue
@@ -54,9 +54,8 @@ CONFIG_FREERTOS_VTASKLIST_INCLUDE_COREID=y
 # the emac_rx task stalls on every NVS save and we lose ~20 ms of audio.
 CONFIG_ETH_IRAM_OPTIMIZATION=y
 
-# Disable task WDT for CPU0 idle task during MSRP flap bursts where
-# emac_rx + AVB-IN can briefly saturate core 0. IDLE1 WDT also disabled
-# above for the busy-wait AVB-OUT case.
+# Disable task WDT for CPU0 idle task during ingress bursts where
+# priority-24 emac_rx can temporarily consume core 0.
 CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU0=n
 
 # Increase EMAC DMA RX buffers and L2TAP queue for high-bandwidth AVB

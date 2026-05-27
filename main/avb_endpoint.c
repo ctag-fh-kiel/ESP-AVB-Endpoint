@@ -95,9 +95,11 @@ static void init_ethernet_and_netif(void) {
   emac_config.dma_burst_len = ETH_DMA_BURST_LEN_32;
   emac_config.intr_priority = 0;
   mac_config.rx_task_stack_size = 16384;
-  /* Listener audio and gPTP share the EMAC RX descriptors. Drain the RX
-   * ring ahead of PTP processing and the 1 ms I2S timer so a short burst
-   * cannot discard PDelay frames and make the upstream port lose ASCapable. */
+  /* Network ingress stays on core 0; core 1 is reserved for I2S/AVTP audio
+   * work. Driver installation runs from app_main on core 0. */
+  mac_config.flags |= ETH_MAC_FLAG_PIN_TO_CORE;
+  /* Listener audio and gPTP share the EMAC RX descriptors. Drain RX ahead of
+   * PTP/control work so a burst cannot discard PDelay frames. */
   mac_config.rx_task_prio = configMAX_PRIORITIES - 1;
   phy_config.phy_addr = 1;
   phy_config.reset_gpio_num = 5;
@@ -445,7 +447,7 @@ void app_main(void) {
   vTaskDelay(pdMS_TO_TICKS(3000));
 
   /* Task handles for memory consumption monitoring */
-  static const unsigned int task_monitor_period = 1000;
+  static const unsigned int task_monitor_period = 10000;
   static const unsigned int task_monitor_threshold = 1000;
   char t0_name[] = "main_task";
   char t1_name[] = "AVB";
@@ -456,16 +458,15 @@ void app_main(void) {
 
   while (1) {
     vTaskDelay(pdMS_TO_TICKS(task_monitor_period));
-    ESP_LOGI(TAG, "heartbeat");
 
     if (t0 && uxTaskGetStackHighWaterMark(t0) < task_monitor_threshold)
-      ESP_LOGI(TAG, "TASK %s high water mark = %d", t0_name,
+      ESP_LOGW(TAG, "TASK %s high water mark = %d", t0_name,
                uxTaskGetStackHighWaterMark(t0));
     if (t1 && uxTaskGetStackHighWaterMark(t1) < task_monitor_threshold)
-      ESP_LOGI(TAG, "TASK %s high water mark = %d", t1_name,
+      ESP_LOGW(TAG, "TASK %s high water mark = %d", t1_name,
                uxTaskGetStackHighWaterMark(t1));
     if (t2 && uxTaskGetStackHighWaterMark(t2) < task_monitor_threshold)
-      ESP_LOGI(TAG, "TASK %s high water mark = %d", t2_name,
+      ESP_LOGW(TAG, "TASK %s high water mark = %d", t2_name,
                uxTaskGetStackHighWaterMark(t2));
   }
 }
