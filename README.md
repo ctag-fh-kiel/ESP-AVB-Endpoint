@@ -15,7 +15,8 @@ Hardware:
 - **Wired endpoint (ESP32-P4):** Scramble offers developer hardware
   with this firmware pre-loaded at <www.scramble.tools>. You can also
   get a Waveshare ESP32-P4-ETH from other vendors and flash it
-  yourself.
+  yourself. This branch's wired audio setup is the ESP32-P4 audio cape
+  with an AKM AK4619 codec.
 - **Wireless endpoint (ESP32-C6):** any ESP32-C6 dev board. Pair it
   with an ESP-AVB-Bridge (see scrambletools/ESP-AVB-Bridge) to reach
   the wired AVB network. Codec/I2S can be left disabled for boards
@@ -36,14 +37,18 @@ Currently supports:
 - AVB talker and listener (both targets)
 - Simultaneous input and output stream
 - Class A or B streams over Ethernet, Class B streams over Wi-Fi
-- 24bit/48kHz-192kHz audio in AAF or AM824
+- AK4619 wired audio at 48 kHz with four local ADC channels and four
+  local DAC channels carried in 8-channel AVB streams
+- AAF PCM INT32, 8 channels, 32-bit depth, 6 samples/frame, 48 kHz
+- AAF PCM INT32, 8 channels, 24-bit depth in a 32-bit container,
+  6 samples/frame, 48 kHz
+- IEC 61883-6 AM824 AM8-24, 48 kHz
 - Control via ATDECC controller (tested with Hive)
 - Wi-Fi STA endpoint with software-disciplined PTP clock, FTM
   peer-delay initiator, and beacon-IE FollowUpInformation consumer
 
 Anticipated future support:
 
-- ES8388/9 hat for ESP32-P4-ETH (to be designed)
 - Milan 1.3 certification or at least compatibility
 - AVB community audio profile support (in draft)
 - AVB Lite (works with any switch, no bandwidth guarantee)
@@ -70,12 +75,25 @@ role switch.
 ## About this example
 
 This application can operate as talker and/or listener. It uses the
-esp_avb component which currently supports the Everest ES8311 mono
-CODEC at 24bit/48kHz PCM audio (in either AAF or AM824/IEC61883-6
-stream format) on targets with audio hardware. The example demonstrates
-the use of the esp_avb component with very little knowledge of AVB
-needed; our hope is that it shows how esp_avb can be dropped into an
-existing ESP-IDF audio application to add AVB connectivity for
+esp_avb component, with this branch's ESP32-P4 default configured for
+the AK4619 audio cape. The codec runs as 48 kHz TDM128 with 32-bit
+slots; the AK4619 ADC data is 24-bit audio in those slots, and the DAC
+path consumes 32-bit slots. The endpoint exposes four usable local
+inputs and four usable local outputs while advertising 8-channel AVB
+stream formats for interoperability with common macOS and MOTU AVB
+endpoints.
+
+The supported wired audio stream formats are:
+
+- AAF PCM INT32, 8 channels, 32-bit depth, 6 samples/frame, 48 kHz
+- AAF PCM INT32, 8 channels, 24-bit depth in a 32-bit container,
+  6 samples/frame, 48 kHz
+- IEC 61883-6 AM824 AM8-24, 48 kHz
+
+The esp_avb component still contains ES8311 and ES8388 codec support,
+but the actively tested hardware configuration for this branch is the
+AK4619 ESP32-P4 audio cape. The example demonstrates how esp_avb can be
+dropped into an ESP-IDF audio application to add AVB connectivity for
 realtime low-latency audio routing.
 
 The same `main/avb_endpoint.c` source serves both targets — the
@@ -94,9 +112,11 @@ controller, and the Apple ATDECC controller (built into MacOS).
 
 ## Hardware notes
 
-- **ESP32-P4 wired endpoint:** tested on the Waveshare ESP32-P4-ETH
-  board, and should work with any board pairing the ESP32-P4 with the
-  ES8311 codec. The ESP32-P4 is required for wired operation because
+- **ESP32-P4 wired endpoint:** tested on an ESP32-P4 board with the
+  AK4619 audio cape. The firmware powers the cape LDO, configures the
+  AK4619 over I2C, and uses I2S0 in TDM128 mode with these pins:
+  MCLK 53, BCLK 47, WS 48, DOUT 46, DIN 6, I2C SCL 8, I2C SDA 7, and
+  codec reset 22. The ESP32-P4 is required for wired operation because
   it has the on-chip IEEE 1588 hardware timestamping; older ESP32 SoCs
   with EMAC do not support hardware timestamping and will not meet the
   AVB sync precision requirements.
@@ -108,9 +128,15 @@ controller, and the Apple ATDECC controller (built into MacOS).
   to terminate Wi-Fi AVB onto a wired AVB switch — see
   scrambletools/ESP-AVB-Bridge.
 
-Compatibility testing has been performed with the MOTU AVB Switch, the
-MOTU 8D audio interface, and the Apple virtual AVB endpoint device
-(part of MacOS).
+Compatibility testing for this branch has been performed with:
+
+- macOS Audio MIDI Setup and the Apple virtual AVB endpoint device
+- Sonnet Technologies Thunderbolt AVB adapter connected to a MacBook Pro
+- MOTU UltraLite AVB as AVB listener for ESP32-P4 talker tests
+- MOTU 624 and MOTU AVB devices for discovery/routing checks
+- Netgear M4250 switch in mixed AVB/RAVENNA/AES67 lab networks
+- Direct Sonnet-to-ESP32-P4 wired AVB links for low-latency and PTP
+  stability testing
 
 ## Open source
 
