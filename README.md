@@ -100,6 +100,56 @@ The same `main/avb_endpoint.c` source serves both targets — the
 medium-specific bring-up (Ethernet vs Wi-Fi STA + FTM + beacon-IE
 consumer) is gated by `CONFIG_ESP_PTP_PORT0_MEDIUM_*`.
 
+## Web UI
+
+The endpoint starts a lightweight HTTP status/configuration UI on port
+80 once the network interface is up. For the ESP32-P4 lab setup the
+default static address is configured in menuconfig under `AVB Example
+Configuration` -> `Web Status Network Defaults`; this branch defaults
+to `192.168.5.16/255.255.0.0` with gateway/DNS `192.168.5.1`.
+
+Open `http://<node-ip>/` to view:
+
+- node/entity identity and basic talker/listener/PTP status
+- active stream inputs/outputs and connection matrix
+- current PTP grandmaster, peer delay, clock source, and applied PLL ppm
+- recent firmware log output captured in RAM
+- network configuration controls for DHCP or static IPv4 settings
+- editable entity name stored in NVS
+- GPIO23 heartbeat/identify LED control stored in NVS
+
+The UI uses these JSON endpoints:
+
+- `GET /api/status`
+- `GET /api/streams`
+- `GET /api/matrix`
+- `GET /api/logs`
+- `GET /api/entity`, `POST /api/entity`
+- `GET /api/heartbeat`, `POST /api/heartbeat`
+- `POST /api/network`
+
+Network, entity-name, heartbeat, and AVB stream persistence share compact
+NVS blobs in the `avb` namespace to avoid exhausting the small default NVS
+partition during repeated routing/configuration changes.
+
+## Talker Clock Tuning
+
+The AK4619 ADC and DAC share one I2S/APLL MCLK. This branch keeps live
+MCLK correction suppressed while a talker stream is active by default,
+because retuning that shared clock during ADC capture produced audible
+ringing/modem-like artefacts and regular stereo pops in long-running
+tests. The talker path also drains stale I2S RX buffers when streaming
+starts and can apply a gentle one-frame capture FIFO rate correction.
+
+These options are configurable in menuconfig under `AVB Configuration` ->
+`Talker Clock and Capture Recovery`:
+
+- `ESP_AVB_SUPPRESS_TALKER_MCLK_CORRECTION`
+- `ESP_AVB_TALKER_FLUSH_STALE_I2S_RX`
+- `ESP_AVB_TALKER_I2S_RX_FLUSH_READS`
+- `ESP_AVB_TALKER_CAPTURE_RATE_MATCH`
+- `ESP_AVB_TALKER_CAPTURE_RATE_MATCH_MIN_INTERVAL_MS`
+
 ## Controller
 
 There is a simple command-line ATDECC controller in the
