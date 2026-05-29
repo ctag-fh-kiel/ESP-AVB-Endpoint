@@ -19,7 +19,9 @@
 #include <string.h>
 
 static const char *TAG = "web_status";
-static const char *NVS_NS = "webnet";
+static const char *NVS_NS = "avb";
+static const char *NVS_LEGACY_NS = "webnet";
+static const char *NVS_WEB_KEY = "webcfg";
 static httpd_handle_t s_httpd;
 static esp_netif_t *s_netif;
 
@@ -36,6 +38,7 @@ static volatile bool s_heartbeat_enabled;
 static TaskHandle_t s_heartbeat_task;
 
 static esp_err_t ensure_nvs(void);
+static void heartbeat_start(void);
 
 static void web_log_ring_append(const char *data, size_t len) {
   if (!data || len == 0)
@@ -70,34 +73,204 @@ void web_status_log_init(void) {
   s_log_hooked = true;
 }
 
-static esp_err_t load_heartbeat_config(bool *enabled) {
-  if (!enabled)
-    return ESP_ERR_INVALID_ARG;
-  *enabled = false;
-  ESP_RETURN_ON_ERROR(ensure_nvs(), TAG, "nvs init failed");
+typedef struct {
+  bool dhcp;
+  char ip[16];
+  char netmask[16];
+  char gateway[16];
+  char dns[16];
+} web_net_config_t;
+
+typedef struct {
+  uint32_t magic;
+  uint8_t version;
+  uint8_t heartbeat;
+  uint8_t dhcp;
+  uint8_t reserved;
+  char ip[16];
+  char netmask[16];
+  char gateway[16];
+  char dns[16];
+} web_persist_config_t;
+
+#define WEB_PERSIST_MAGIC 0x57454243u /* "WEBC" */
+#define WEB_PERSIST_VERSION 1
+
+static esp_err_t ensure_nvs(void) {
+  esp_err_t err = nvs_flash_init();
+  if (err == ESP_ERR_NVS_NO_FREE_PAGES ||
+      err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+    ESP_ERROR_CHECK(nvs_flash_erase());
+    err = nvs_flash_init();
+  }
+  return err;
+}
+
+static void default_net_config(web_net_config_t *cfg) {
+  memset(cfg, 0, sizeof(*cfg));
+  cfg->dhcp = false;
+  snprintf(cfg->ip, sizeof(cfg->ip), "%s",
+           CONFIG_EXAMPLE_WEB_DEFAULT_STATIC_IP);
+  snprintf(cfg->netmask, sizeof(cfg->netmask), "%s",
+           CONFIG_EXAMPLE_WEB_DEFAULT_NETMASK);
+  snprintf(cfg->gateway, sizeof(cfg->gateway), "%s",
+           CONFIG_EXAMPLE_WEB_DEFAULT_GATEWAY);
+  snprintf(cfg->dns, sizeof(cfg->dns), "%s", CONFIG_EXAMPLE_WEB_DEFAULT_DNS);
+}
+
+static void default_web_persist(web_persist_config_t *cfg) {
+  web_net_config_t net;
+  default_net_config(&net);
+  memset(cfg, 0, sizeof(*cfg));
+  cfg->magic = WEB_PERSIST_MAGIC;
+  cfg->version = WEB_PERSIST_VERSION;
+  cfg->heartbeat = 0;
+  cfg->dhcp = net.dhcp ? 1 : 0;
+  snprintf(cfg->ip, sizeof(cfg->ip), "%s", net.ip);
+  snprintf(cfg->netmask, sizeof(cfg->netmask), "%s", net.netmask);
+  snprintf(cfg->gateway, sizeof(cfg->gateway), "%s", net.gateway);
+  snprintf(cfg->dns, sizeof(cfg->dns), "%s", net.dns);
+}
+
+static void web_persist_to_net(const web_persist_config_t *persist,
+                               web_net_config_t *net) {
+  memset(net, 0, sizeof(*net));
+  net->dhcp = persist->dhcp != 0;
+  snprintf(net->ip, sizeof(net->ip), "%s", persist->ip);
+  snprintf(net->netmask, sizeof(net->netmask), "%s", persist->netmask);
+  snprintf(net->gateway, sizeof(net->gateway), "%s", persist->gateway);
+  snprintf(net->dns, sizeof(net->dns), "%s", persist->dns);
+}
+
+static void web_persist_set_net(web_persist_config_t *persist,
+                                const web_net_config_t *net) {
+  persist->dhcp = net->dhcp ? 1 : 0;
+  snprintf(persist->ip, sizeof(persist->ip), "%s", net->ip);
+  snprintf(persist->netmask, sizeof(persist->netmask), "%s", net->netmask);
+  snprintf(persist->gateway, sizeof(persist->gateway), "%s", net->gateway);
+  snprintf(persist->dns, sizeof(persist->dns), "%s", net->dns);
+}
+
+static esp_err_t load_legacy_net_config(web_net_config_t *cfg, bool *found) {
+  if (found)
+    *found = false;
   nvs_handle_t h;
-  esp_err_t err = nvs_open(NVS_NS, NVS_READONLY, &h);
+  esp_err_t err = nvs_open(NVS_LEGACY_NS, NVS_READONLY, &h);
   if (err == ESP_ERR_NVS_NOT_FOUND)
     return ESP_OK;
   if (err != ESP_OK)
     return err;
-  uint8_t value = 0;
-  if (nvs_get_u8(h, "heartbeat", &value) == ESP_OK)
-    *enabled = value != 0;
+  uint8_t dhcp = cfg->dhcp ? 1 : 0;
+  if (nvs_get_u8(h, "dhcp", &dhcp) == ESP_OK) {
+    cfg->dhcp = dhcp != 0;
+    if (found)
+      *found = true;
+  }
+  size_t len;
+  len = sizeof(cfg->ip);
+  nvs_get_str(h, "ip", cfg->ip, &len);
+  len = sizeof(cfg->netmask);
+  nvs_get_str(h, "netmask", cfg->netmask, &len);
+  len = sizeof(cfg->gateway);
+  nvs_get_str(h, "gateway", cfg->gateway, &len);
+  len = sizeof(cfg->dns);
+  nvs_get_str(h, "dns", cfg->dns, &len);
   nvs_close(h);
   return ESP_OK;
 }
 
-static esp_err_t save_heartbeat_config(bool enabled) {
+static esp_err_t load_web_persist(web_persist_config_t *cfg, bool *found) {
+  default_web_persist(cfg);
+  if (found)
+    *found = false;
+  ESP_RETURN_ON_ERROR(ensure_nvs(), TAG, "nvs init failed");
+  nvs_handle_t h;
+  esp_err_t err = nvs_open(NVS_NS, NVS_READONLY, &h);
+  if (err == ESP_ERR_NVS_NOT_FOUND)
+    goto legacy;
+  if (err != ESP_OK)
+    return err;
+
+  size_t len = sizeof(*cfg);
+  err = nvs_get_blob(h, NVS_WEB_KEY, cfg, &len);
+  nvs_close(h);
+  if (err == ESP_OK && len == sizeof(*cfg) &&
+      cfg->magic == WEB_PERSIST_MAGIC && cfg->version == WEB_PERSIST_VERSION) {
+    if (found)
+      *found = true;
+    return ESP_OK;
+  }
+  if (err != ESP_ERR_NVS_NOT_FOUND && err != ESP_OK)
+    return err;
+
+legacy:
+  {
+    web_net_config_t legacy;
+    bool legacy_found = false;
+    default_net_config(&legacy);
+    err = load_legacy_net_config(&legacy, &legacy_found);
+    if (err != ESP_OK)
+      return err;
+    if (legacy_found) {
+      web_persist_set_net(cfg, &legacy);
+      if (found)
+        *found = true;
+    }
+  }
+  return ESP_OK;
+}
+
+static esp_err_t save_web_persist(const web_persist_config_t *cfg) {
   ESP_RETURN_ON_ERROR(ensure_nvs(), TAG, "nvs init failed");
   nvs_handle_t h;
   ESP_RETURN_ON_ERROR(nvs_open(NVS_NS, NVS_READWRITE, &h), TAG,
                       "nvs open failed");
-  esp_err_t err = nvs_set_u8(h, "heartbeat", enabled ? 1 : 0);
+  esp_err_t err = nvs_set_blob(h, NVS_WEB_KEY, cfg, sizeof(*cfg));
   if (err == ESP_OK)
     err = nvs_commit(h);
   nvs_close(h);
   return err;
+}
+
+static esp_err_t load_net_config(web_net_config_t *cfg, bool *found) {
+  web_persist_config_t persist;
+  esp_err_t err = load_web_persist(&persist, found);
+  if (err != ESP_OK)
+    return err;
+  web_persist_to_net(&persist, cfg);
+  return ESP_OK;
+}
+
+static esp_err_t save_net_config(const web_net_config_t *cfg) {
+  web_persist_config_t persist;
+  bool found = false;
+  esp_err_t err = load_web_persist(&persist, &found);
+  if (err != ESP_OK)
+    return err;
+  web_persist_set_net(&persist, cfg);
+  return save_web_persist(&persist);
+}
+
+static esp_err_t load_heartbeat_config(bool *enabled) {
+  if (!enabled)
+    return ESP_ERR_INVALID_ARG;
+  web_persist_config_t persist;
+  bool found = false;
+  esp_err_t err = load_web_persist(&persist, &found);
+  if (err != ESP_OK)
+    return err;
+  *enabled = persist.heartbeat != 0;
+  return ESP_OK;
+}
+
+static esp_err_t save_heartbeat_config(bool enabled) {
+  web_persist_config_t persist;
+  bool found = false;
+  esp_err_t err = load_web_persist(&persist, &found);
+  if (err != ESP_OK)
+    return err;
+  persist.heartbeat = enabled ? 1 : 0;
+  return save_web_persist(&persist);
 }
 
 static void heartbeat_task(void *arg) {
@@ -134,86 +307,6 @@ static void heartbeat_start(void) {
     xTaskCreatePinnedToCore(heartbeat_task, "WEB-HB", 2048, NULL, 1,
                             &s_heartbeat_task, 0);
   }
-}
-
-typedef struct {
-  bool dhcp;
-  char ip[16];
-  char netmask[16];
-  char gateway[16];
-  char dns[16];
-} web_net_config_t;
-
-static esp_err_t ensure_nvs(void) {
-  esp_err_t err = nvs_flash_init();
-  if (err == ESP_ERR_NVS_NO_FREE_PAGES ||
-      err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-    ESP_ERROR_CHECK(nvs_flash_erase());
-    err = nvs_flash_init();
-  }
-  return err;
-}
-
-static void default_net_config(web_net_config_t *cfg) {
-  memset(cfg, 0, sizeof(*cfg));
-  cfg->dhcp = false;
-  snprintf(cfg->ip, sizeof(cfg->ip), "%s",
-           CONFIG_EXAMPLE_WEB_DEFAULT_STATIC_IP);
-  snprintf(cfg->netmask, sizeof(cfg->netmask), "%s",
-           CONFIG_EXAMPLE_WEB_DEFAULT_NETMASK);
-  snprintf(cfg->gateway, sizeof(cfg->gateway), "%s",
-           CONFIG_EXAMPLE_WEB_DEFAULT_GATEWAY);
-  snprintf(cfg->dns, sizeof(cfg->dns), "%s", CONFIG_EXAMPLE_WEB_DEFAULT_DNS);
-}
-
-static esp_err_t load_net_config(web_net_config_t *cfg, bool *found) {
-  default_net_config(cfg);
-  if (found)
-    *found = false;
-  ESP_RETURN_ON_ERROR(ensure_nvs(), TAG, "nvs init failed");
-  nvs_handle_t h;
-  esp_err_t err = nvs_open(NVS_NS, NVS_READONLY, &h);
-  if (err == ESP_ERR_NVS_NOT_FOUND)
-    return ESP_OK;
-  if (err != ESP_OK)
-    return err;
-  uint8_t dhcp = cfg->dhcp ? 1 : 0;
-  if (nvs_get_u8(h, "dhcp", &dhcp) == ESP_OK) {
-    cfg->dhcp = dhcp != 0;
-    if (found)
-      *found = true;
-  }
-  size_t len;
-  len = sizeof(cfg->ip);
-  nvs_get_str(h, "ip", cfg->ip, &len);
-  len = sizeof(cfg->netmask);
-  nvs_get_str(h, "netmask", cfg->netmask, &len);
-  len = sizeof(cfg->gateway);
-  nvs_get_str(h, "gateway", cfg->gateway, &len);
-  len = sizeof(cfg->dns);
-  nvs_get_str(h, "dns", cfg->dns, &len);
-  nvs_close(h);
-  return ESP_OK;
-}
-
-static esp_err_t save_net_config(const web_net_config_t *cfg) {
-  ESP_RETURN_ON_ERROR(ensure_nvs(), TAG, "nvs init failed");
-  nvs_handle_t h;
-  ESP_RETURN_ON_ERROR(nvs_open(NVS_NS, NVS_READWRITE, &h), TAG,
-                      "nvs open failed");
-  esp_err_t err = nvs_set_u8(h, "dhcp", cfg->dhcp ? 1 : 0);
-  if (err == ESP_OK)
-    err = nvs_set_str(h, "ip", cfg->ip);
-  if (err == ESP_OK)
-    err = nvs_set_str(h, "netmask", cfg->netmask);
-  if (err == ESP_OK)
-    err = nvs_set_str(h, "gateway", cfg->gateway);
-  if (err == ESP_OK)
-    err = nvs_set_str(h, "dns", cfg->dns);
-  if (err == ESP_OK)
-    err = nvs_commit(h);
-  nvs_close(h);
-  return err;
 }
 
 static bool parse_ip(const char *s, esp_ip4_addr_t *out) {
