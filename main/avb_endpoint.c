@@ -26,6 +26,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "sdkconfig.h"
+#include "web_status.h"
 #include <esp_log.h>
 #include <string.h>
 
@@ -62,6 +63,7 @@ static const char *TAG = "avb_endpoint";
 #ifdef CONFIG_ESP_PTP_PORT0_MEDIUM_ETHERNET
 
 static esp_eth_handle_t s_eth_handle;
+static esp_netif_t *s_eth_netif;
 static esp_ldo_channel_handle_t s_audio_ldo4;
 static char s_avb_eth_interface[10];
 
@@ -120,9 +122,11 @@ static void init_ethernet_and_netif(void) {
   esp_netif_base_config.if_desc = "eth0";
   esp_netif_base_config.route_prio = 50;
   esp_netif_t *eth_netif = esp_netif_new(&esp_netif_config);
+  s_eth_netif = eth_netif;
 
   ESP_ERROR_CHECK(
       esp_netif_attach(eth_netif, esp_eth_new_netif_glue(s_eth_handle)));
+  ESP_ERROR_CHECK(web_status_apply_network_config(eth_netif));
 
   memcpy(s_avb_eth_interface, esp_netif_base_config.if_key,
          strlen(esp_netif_base_config.if_key));
@@ -188,6 +192,7 @@ static void start_ethernet_endpoint(void) {
   }
 
   avb_start(&avb_config);
+  web_status_start(s_eth_netif);
 }
 
 #endif /* CONFIG_ESP_PTP_PORT0_MEDIUM_ETHERNET */
@@ -436,6 +441,8 @@ static void start_wifi_endpoint(void) {
  * ===========================================================================
  */
 void app_main(void) {
+  web_status_log_init();
+
 #ifdef CONFIG_ESP_PTP_PORT0_MEDIUM_ETHERNET
   start_ethernet_endpoint();
 #endif

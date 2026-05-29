@@ -1,4 +1,4 @@
-set(srcs "avb_endpoint.c")
+set(srcs "avb_endpoint.c" "web_status.c")
 
 # Per-target dep gating. The per-medium blocks inside avb_endpoint.c
 # self-gate on CONFIG_ESP_PTP_PORT*_MEDIUM_* via #ifdef, but the
@@ -10,8 +10,14 @@ set(srcs "avb_endpoint.c")
 # esp_avb, etc. (the historical behavior of this example).
 if(IDF_TARGET STREQUAL "esp32c6")
     idf_component_register(SRCS ${srcs}
+                           INCLUDE_DIRS "."
                            PRIV_REQUIRES esp_wifi esp_netif esp_event
-                                         nvs_flash esp_timer esp_avb)
+                                         nvs_flash esp_timer esp_avb
+                                         esp_http_server esp_driver_gpio)
 else()
-    idf_component_register(SRCS ${srcs})
+    idf_component_register(SRCS ${srcs}
+                           INCLUDE_DIRS "."
+                           PRIV_REQUIRES esp_http_server esp_netif esp_avb
+                                         esp_eth espressif__ip101 nvs_flash
+                                         esp_driver_gpio)
 endif()
