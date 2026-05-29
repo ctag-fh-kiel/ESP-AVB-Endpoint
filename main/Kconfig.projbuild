@@ -87,4 +87,33 @@ menu "AVB Example Configuration"
         help
             Allow an AVB Controller to control this device via ATDECC protocol. If not set it will break Milan compliance.
 
+    menu "Web Status Network Defaults"
+
+        config EXAMPLE_WEB_DEFAULT_STATIC_IP
+            string "Default static IPv4 address"
+            default "192.168.5.16"
+            help
+                Default static IPv4 address used by the web status server when
+                no network configuration has been saved in NVS yet.
+
+        config EXAMPLE_WEB_DEFAULT_NETMASK
+            string "Default IPv4 netmask"
+            default "255.255.0.0"
+            help
+                Default IPv4 netmask used with the default static address.
+
+        config EXAMPLE_WEB_DEFAULT_GATEWAY
+            string "Default IPv4 gateway"
+            default "192.168.5.1"
+            help
+                Default IPv4 gateway used with the default static address.
+
+        config EXAMPLE_WEB_DEFAULT_DNS
+            string "Default IPv4 DNS server"
+            default "192.168.5.1"
+            help
+                Default DNS server used with the default static address.
+
+    endmenu
+
 endmenu

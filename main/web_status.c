@@ -12,6 +12,7 @@
 #include "nvs.h"
 #include "nvs_flash.h"
 #include "lwip/inet.h"
+#include "sdkconfig.h"
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -156,10 +157,13 @@ static esp_err_t ensure_nvs(void) {
 static void default_net_config(web_net_config_t *cfg) {
   memset(cfg, 0, sizeof(*cfg));
   cfg->dhcp = false;
-  snprintf(cfg->ip, sizeof(cfg->ip), "192.168.5.16");
-  snprintf(cfg->netmask, sizeof(cfg->netmask), "255.255.0.0");
-  snprintf(cfg->gateway, sizeof(cfg->gateway), "192.168.5.1");
-  snprintf(cfg->dns, sizeof(cfg->dns), "192.168.5.1");
+  snprintf(cfg->ip, sizeof(cfg->ip), "%s",
+           CONFIG_EXAMPLE_WEB_DEFAULT_STATIC_IP);
+  snprintf(cfg->netmask, sizeof(cfg->netmask), "%s",
+           CONFIG_EXAMPLE_WEB_DEFAULT_NETMASK);
+  snprintf(cfg->gateway, sizeof(cfg->gateway), "%s",
+           CONFIG_EXAMPLE_WEB_DEFAULT_GATEWAY);
+  snprintf(cfg->dns, sizeof(cfg->dns), "%s", CONFIG_EXAMPLE_WEB_DEFAULT_DNS);
 }
 
 static esp_err_t load_net_config(web_net_config_t *cfg, bool *found) {
